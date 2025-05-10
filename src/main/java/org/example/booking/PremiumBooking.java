@@ -9,6 +9,11 @@ public class PremiumBooking extends RegularBooking {
         this.basePrice = 80.00; // Premium daily rate
     }
 
+    // Add this getter method
+    public boolean includesInsurance() {
+        return includesInsurance;
+    }
+
     @Override
     public double getTotalPrice(int days) {
         return includesInsurance ? super.getTotalPrice(days) + 30 : super.getTotalPrice(days);

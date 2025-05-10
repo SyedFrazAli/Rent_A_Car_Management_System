@@ -1,12 +1,12 @@
 package org.example.auth;
 
-public class Admin {
-    // Singleton instance
-    private static Admin instance;
-    private String username = "admin";
-    private String password = "admin123"; // In real apps, never store passwords like this!
+import org.example.db.DatabaseManager;
+import java.sql.*;
 
-    private Admin() {} // Private constructor
+public class Admin {
+    private static Admin instance;
+
+    private Admin() {}
 
     public static Admin getInstance() {
         if (instance == null) {
@@ -16,6 +16,21 @@ public class Admin {
     }
 
     public boolean login(String inputUsername, String inputPassword) {
-        return username.equals(inputUsername) && password.equals(inputPassword);
+        String sql = "SELECT password FROM admin WHERE username = ?";
+
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, inputUsername);
+            ResultSet rs = pstmt.executeQuery();
+
+            if (rs.next()) {
+                String storedPassword = rs.getString("password");
+                return storedPassword.equals(inputPassword);
+            }
+        } catch (SQLException e) {
+            System.err.println("Error during login: " + e.getMessage());
+        }
+        return false;
     }
 }

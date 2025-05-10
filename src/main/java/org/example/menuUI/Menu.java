@@ -1,36 +1,21 @@
 package org.example.menuUI;
 
-import org.example.Main;
-import org.example.booking.BookingFactory;
-import org.example.booking.PremiumBooking;
-import org.example.booking.RegularBooking;
-import org.example.model.Car;
-import org.example.model.CarFactory;
-
+import org.example.model.*;
+import org.example.booking.*;
+import org.example.db.CarRepository;
+import org.example.db.BookingRepository;
 import java.util.Scanner;
-import java.util.ArrayList;
 import java.util.List;
 
 public class Menu {
-    private static Scanner scanner = new Scanner(System.in);
-    private List<Car> cars;
-    private List<RegularBooking> bookings;
+    private final Scanner scanner;
+    private final CarRepository carRepository;
+    private final BookingRepository bookingRepository;
 
     public Menu() {
-        this.cars = new ArrayList<>();
-        this.bookings = new ArrayList<>();
-
-        // (for testing)
-        cars.add(new Car("C001", "Toyota Corolla"));
-        cars.add(new Car("C002", "Honda Civic"));
-        cars.add(new Car("C003", "Suzuki Mehran"));
-        cars.add(new Car("C004", "Suzuki Bolan"));
-        cars.add(new Car("C005", "Volkswagen GTI"));
-        cars.add(new Car("C006", "Mercedes-Benz"));
-        cars.add(new Car("C007", "Tesla Model 3"));
-        cars.add(new Car("C008", "BMW X5"));
-        cars.add(new Car("C009", "Ford Fusion"));
-        cars.add(new Car("C010", "Audi TT"));
+        this.scanner = new Scanner(System.in);
+        this.carRepository = new CarRepository();
+        this.bookingRepository = new BookingRepository();
     }
 
     public void showMainMenu() {
@@ -44,8 +29,13 @@ public class Menu {
             System.out.println("6. Logout");
             System.out.print("Choose an option (1-6): ");
 
-            int choice = scanner.nextInt();
-            scanner.nextLine(); // Consume newline
+            int choice;
+            try {
+                choice = Integer.parseInt(scanner.nextLine());
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid input! Please enter a number.");
+                continue;
+            }
 
             switch (choice) {
                 case 1 -> bookCar();
@@ -55,7 +45,6 @@ public class Menu {
                 case 5 -> cancelBooking();
                 case 6 -> {
                     System.out.println("Logging out...");
-                    Main.main(null);
                     return;
                 }
                 default -> System.out.println("Invalid option! Try again.");
@@ -65,43 +54,131 @@ public class Menu {
 
     private void bookCar() {
         System.out.println("\nAvailable Cars:");
-        viewCars();
+        viewAvailableCars();
 
         System.out.print("Enter Car ID to book: ");
-        String carId = scanner.nextLine();
+        String carId = scanner.nextLine().trim();
 
-        Car selectedCar = findCarById(carId);
+        Car selectedCar = carRepository.getAllCars().stream()
+                .filter(c -> c.getId().equalsIgnoreCase(carId) && c.isAvailable())
+                .findFirst()
+                .orElse(null);
+
         if (selectedCar == null) {
-            System.out.println("Error: Car not found!");
-            return;
-        }
-
-        if (!selectedCar.isAvailable()) {
-            System.out.println("Error: Car already booked!");
+            System.out.println("Error: Car not found or already booked!");
             return;
         }
 
         System.out.print("Enter Your Name: ");
-        String customerName = scanner.nextLine();
+        String customerName = scanner.nextLine().trim();
 
         System.out.print("Booking Type (regular/premium): ");
-        String bookingType = scanner.nextLine();
+        String bookingType = scanner.nextLine().trim().toLowerCase();
 
-        // Use Factory to create booking
+        if (!bookingType.equals("regular") && !bookingType.equals("premium")) {
+            System.out.println("Invalid booking type! Defaulting to regular.");
+            bookingType = "regular";
+        }
+
         RegularBooking booking = BookingFactory.createBooking(bookingType, carId, customerName);
-        bookings.add(booking);
-        selectedCar.setAvailable(false);
+        bookingRepository.addBooking(booking);
+        carRepository.updateCarAvailability(carId, false);
+
         if (booking instanceof PremiumBooking) {
             System.out.print("Enter rental days: ");
-            int days = scanner.nextInt();
-            scanner.nextLine(); // Consume newline
-            System.out.printf("Total price: $%.2f%n", booking.getTotalPrice(days));
+            int days;
+            try {
+                days = Integer.parseInt(scanner.nextLine());
+                System.out.printf("Total price: $%.2f%n", booking.getTotalPrice(days));
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid number of days! Setting to 1 day.");
+                System.out.printf("Total price: $%.2f%n", booking.getTotalPrice(1));
+            }
         }
 
         System.out.println("Booking created: " + booking.getBookingDetails());
     }
 
+    private void viewBookings() {
+        List<RegularBooking> bookings = bookingRepository.getAllBookings();
+        if (bookings.isEmpty()) {
+            System.out.println("\nNo bookings yet!");
+            return;
+        }
+
+        System.out.println("\nAll Bookings:");
+        for (int i = 0; i < bookings.size(); i++) {
+            RegularBooking booking = bookings.get(i);
+            System.out.printf("%d. %s%n", i + 1, booking.getBookingDetails());
+        }
+    }
+
+    private void addCar() {
+        System.out.print("\nEnter Car ID: ");
+        String id = scanner.nextLine().trim();
+
+        // Check if car already exists
+        boolean carExists = carRepository.getAllCars().stream()
+                .anyMatch(c -> c.getId().equalsIgnoreCase(id));
+        if (carExists) {
+            System.out.println("Error: Car with this ID already exists!");
+            return;
+        }
+
+        System.out.print("Enter Car Model: ");
+        String model = scanner.nextLine().trim();
+
+        System.out.print("Enter Car Type (regular/electric/luxury): ");
+        String type = scanner.nextLine().trim().toLowerCase();
+
+        if (!type.equals("regular") && !type.equals("electric") && !type.equals("luxury")) {
+            System.out.println("Invalid car type! Defaulting to regular.");
+            type = "regular";
+        }
+
+        Car newCar = CarFactory.createCar(type, id, model);
+        carRepository.addCar(newCar);
+        System.out.printf("Car added successfully!%nID: %s, Model: %s, Type: %s%n",
+                newCar.getId(), newCar.getModel(), newCar.getClass().getSimpleName());
+    }
+
+    private void viewCars() {
+        List<Car> cars = carRepository.getAllCars();
+        if (cars.isEmpty()) {
+            System.out.println("\nNo cars available!");
+            return;
+        }
+
+        System.out.println("\nAll Cars:");
+        for (Car car : cars) {
+            System.out.printf("- ID: %s, Model: %s, Type: %s, Available: %s%n",
+                    car.getId(),
+                    car.getModel(),
+                    car.getClass().getSimpleName(),
+                    car.isAvailable() ? "Yes" : "No");
+        }
+    }
+
+    private void viewAvailableCars() {
+        List<Car> availableCars = carRepository.getAllCars().stream()
+                .filter(Car::isAvailable)
+                .toList();
+
+        if (availableCars.isEmpty()) {
+            System.out.println("No cars currently available!");
+            return;
+        }
+
+        for (Car car : availableCars) {
+            System.out.printf("- ID: %s, Model: %s, Type: %s%n",
+                    car.getId(),
+                    car.getModel(),
+                    car.getClass().getSimpleName());
+        }
+    }
+
     private void cancelBooking() {
+        List<RegularBooking> bookings = bookingRepository.getAllBookings();
         if (bookings.isEmpty()) {
             System.out.println("\nNo bookings to cancel!");
             return;
@@ -110,17 +187,15 @@ public class Menu {
         System.out.println("\nCurrent Bookings:");
         for (int i = 0; i < bookings.size(); i++) {
             RegularBooking b = bookings.get(i);
-            System.out.println((i+1) + ". " + b.getBookingDetails()); // Using the detailed view
+            System.out.printf("%d. %s%n", i + 1, b.getBookingDetails());
         }
 
-        System.out.print("\nEnter booking number to cancel (1-" + bookings.size() + "): ");
+        System.out.printf("%nEnter booking number to cancel (1-%d): ", bookings.size());
         int bookingNumber;
         try {
-            bookingNumber = scanner.nextInt();
-            scanner.nextLine(); // Consume newline
-        } catch (Exception e) {
+            bookingNumber = Integer.parseInt(scanner.nextLine());
+        } catch (NumberFormatException e) {
             System.out.println("Invalid input! Please enter a number.");
-            scanner.nextLine(); // Clear the invalid input
             return;
         }
 
@@ -131,7 +206,6 @@ public class Menu {
 
         RegularBooking toCancel = bookings.get(bookingNumber - 1);
 
-        // Show detailed confirmation
         System.out.println("\nYou're about to cancel this booking:");
         System.out.println(toCancel.getBookingDetails());
         if (toCancel instanceof PremiumBooking) {
@@ -147,67 +221,10 @@ public class Menu {
         }
 
         // Perform cancellation
-        bookings.remove(bookingNumber - 1);
-        Car car = findCarById(toCancel.getCarId());
-        if (car != null) {
-            car.setAvailable(true);
-        }
+        bookingRepository.deleteBooking(toCancel.getCarId());
+        carRepository.updateCarAvailability(toCancel.getCarId(), true);
 
         System.out.println("\nBooking cancelled successfully!");
         System.out.println("Car " + toCancel.getCarId() + " is now available.");
-    }
-    private void viewBookings() {
-        if (bookings.isEmpty()) {
-            System.out.println("No bookings yet!");
-            return;
-        }
-
-        System.out.println("\nAll Bookings:");
-        for (int i = 0; i < bookings.size(); i++) {
-            RegularBooking booking = bookings.get(i);
-            System.out.println((i+1) + ". " + booking.getBookingDetails());
-        }
-    }
-    private void addCar() {
-        System.out.print("Enter Car ID: ");
-        String id = scanner.nextLine();
-
-        if (findCarById(id) != null) {
-            System.out.println("Error: Car with this ID already exists!");
-            return;
-        }
-
-        System.out.print("Enter Car Model: ");
-        String model = scanner.nextLine();
-
-        System.out.print("Enter Car Type (regular/electric/luxury): ");
-        String type = scanner.nextLine();
-
-        Car newCar = CarFactory.createCar(type, id, model);
-        cars.add(newCar);
-        System.out.println("Car added successfully! Type: " + newCar.getClass().getSimpleName());
-    }
-    private void viewCars() {
-        if (cars.isEmpty()) {
-            System.out.println("No cars available!");
-            return;
-        }
-
-        System.out.println("\nAvailable Cars:");
-        for (Car car : cars) {
-            System.out.println("- ID: " + car.getId() +
-                    ", Model: " + car.getModel() +
-                    ", Type: " + car.getClass().getSimpleName() +
-                    ", Available: " + (car.isAvailable() ? "Yes" : "No"));
-        }
-    }
-    // Helper method to find car by ID
-    private Car findCarById(String carId) {
-        for (Car car : cars) {
-            if (car.getId().equalsIgnoreCase(carId)) {
-                return car;
-            }
-        }
-        return null;
     }
 }
